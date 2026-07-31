@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <print>
+#include <string>
 #include <vector>
 
 #include "util.h"
@@ -28,13 +29,26 @@ struct World
 struct RayHitResult
 {
     bool hit;
-    float t;
+    v3 point;
+    v3 normal;
     const Sphere *sphere;
 };
 
+v3 random_in_unit_sphere()
+{
+    v3 p;
+    do
+    {
+        p = 2.0f * v3{ float(drand48()), float(drand48()), float(drand48()) } - v3{ 1.0f, 1.0f, 1.0f };
+    }
+    while (v3_dot(p, p) >= 1.0f);
+    return p;
+}
+
 RayHitResult ray_hit_sphere(const Ray &ray, const World &world)
 {
-    RayHitResult result{ false, -1.0f, nullptr };
+    float smallest_t = MAXFLOAT;
+    const Sphere *hit_sphere = nullptr;
 
     for (size_t i = 0; i < world.spheres.size(); i++)
     {
@@ -47,15 +61,28 @@ RayHitResult ray_hit_sphere(const Ray &ray, const World &world)
 
         if (discriminant >= 0.0f)
         {
-            float smallest_root = (-b - std::sqrt(discriminant)) / (2.0f * a);
-            if (smallest_root > 0.0f)
+            float root = (-b - std::sqrt(discriminant)) / (2.0f * a);
+            if (root > 0.0f && root < smallest_t)
             {
-                result.hit = true;
-                result.sphere = &sphere;
-                result.t = smallest_root;
+                smallest_t = root;
+                hit_sphere = &world.spheres[i];
             }
-            break;
         }
+    }
+
+
+    RayHitResult result;
+    
+    if (hit_sphere)
+    {
+        result.hit = true;
+        result.sphere = hit_sphere;
+        result.point = ray.at_param(smallest_t);
+        result.normal = (result.point - hit_sphere->center) / hit_sphere->radius;
+    }
+    else
+    {
+        result.hit = false;
     }
 
     return result;
@@ -68,9 +95,12 @@ v3 ray_color(const Ray &ray, const World &world)
     RayHitResult ray_hit_result = ray_hit_sphere(ray, world);
     if (ray_hit_result.hit)
     {
-        v3 sphere_normal = v3_normalize(ray.at_param(ray_hit_result.t) - ray_hit_result.sphere->center);
-        v3 surface_normal_color = 0.5f * (sphere_normal + v3{ 1.0f, 1.0f, 1.0f });
-        result_color = surface_normal_color;
+        v3 target = ray_hit_result.point + ray_hit_result.normal + random_in_unit_sphere();
+        // v3 sphere_normal = ray_hit_result.normal;
+        // v3 surface_normal_color = 0.5f * (sphere_normal + v3{ 1.0f, 1.0f, 1.0f });
+        Ray bounce_ray{ ray_hit_result.point, target - ray_hit_result.point };
+        v3 color_after_bounce = 0.5f * ray_color(bounce_ray, world);
+        result_color = color_after_bounce;
     }
     else
     {
@@ -85,6 +115,8 @@ v3 ray_color(const Ray &ray, const World &world)
 
 int main()
 {
+    std::println("Starting ray tracing...");
+
     int width = 200;
     int height = 100;
     int samples_per_pixel = 100;
@@ -98,7 +130,9 @@ int main()
     world.spheres.push_back(Sphere{ { 0.0f, 0.0f, -1.0f }, 0.5f });
     world.spheres.push_back(Sphere{ { 0.0f, -100.5f, -1.0f }, 100.0f });
 
-    std::ofstream file("out/out.ppm");
+    std::string out_name("out/out.ppm");
+
+    std::ofstream file(out_name);
 
     file << "P3\n";
     file << width << ' ' << height << '\n';
@@ -123,6 +157,9 @@ int main()
 
             color /= float(samples_per_pixel);
 
+            // gamma corrected (sort of)
+            color = v3{ std::sqrt(color.x), std::sqrt(color.y), std::sqrt(color.z) };
+
             int ir = int(255.99f * color.x);
             int ig = int(255.99f * color.y);
             int ib = int(255.99f * color.z);
@@ -131,6 +168,6 @@ int main()
         }
     }
 
-    std::println("Hello world");
+    std::println("Finished. Result written to {}", out_name);
     return 0;
 }
