@@ -2,48 +2,85 @@
 #include <cstdlib>
 #include <fstream>
 #include <print>
+#include <vector>
 
 #include "util.h"
 
-float ray_hit_sphere(const Ray &ray, const v3 &center, float radius)
+struct Ray
 {
-    v3 oc = ray.origin - center;
-    float a = v3_dot(ray.direction, ray.direction);
-    float b = 2.0f * v3_dot(oc, ray.direction);
-    float c = v3_dot(oc, oc) - radius * radius;
-    float discriminant = b * b - 4 * a * c;
+    v3 origin;
+    v3 direction;
 
-    float result_t;
-    if (discriminant < 0)
+    inline v3 at_param(float t) const { return origin + t * direction; }
+};
+
+struct Sphere
+{
+    v3 center;
+    float radius;
+};
+
+struct World
+{
+    std::vector<Sphere> spheres;
+};
+
+struct RayHitResult
+{
+    bool hit;
+    float t;
+    const Sphere *sphere;
+};
+
+RayHitResult ray_hit_sphere(const Ray &ray, const World &world)
+{
+    RayHitResult result{ false, -1.0f, nullptr };
+
+    for (size_t i = 0; i < world.spheres.size(); i++)
     {
-        result_t = -1.0f; // ray did not hit sphere
+        const Sphere &sphere = world.spheres[i];
+        v3 oc = ray.origin - sphere.center;
+        float a = v3_dot(ray.direction, ray.direction);
+        float b = 2.0f * v3_dot(oc, ray.direction);
+        float c = v3_dot(oc, oc) - sphere.radius * sphere.radius;
+        float discriminant = b * b - 4 * a * c;
+
+        if (discriminant >= 0.0f)
+        {
+            float smallest_root = (-b - std::sqrt(discriminant)) / (2.0f * a);
+            if (smallest_root > 0.0f)
+            {
+                result.hit = true;
+                result.sphere = &sphere;
+                result.t = smallest_root;
+            }
+            break;
+        }
     }
-    else
-    {
-        result_t = (-b - std::sqrt(discriminant)) / (2.0f * a); // the smaller of the two roots
-    }
-    return result_t;
+
+    return result;
 }
 
-v3 ray_color(const Ray &ray)
+v3 ray_color(const Ray &ray, const World &world)
 {
-    v3 sphere_origin{ 0.0f, 0.0f, -1.0f };
-    float sphere_radius = 0.5f;
+    v3 result_color;
 
-    float t = ray_hit_sphere(ray, sphere_origin, sphere_radius);
-    if (t > 0.0f)
+    RayHitResult ray_hit_result = ray_hit_sphere(ray, world);
+    if (ray_hit_result.hit)
     {
-        v3 sphere_normal = v3_normalize(ray.at_param(t) - sphere_origin);
+        v3 sphere_normal = v3_normalize(ray.at_param(ray_hit_result.t) - ray_hit_result.sphere->center);
         v3 surface_normal_color = 0.5f * (sphere_normal + v3{ 1.0f, 1.0f, 1.0f });
-        return surface_normal_color;
+        result_color = surface_normal_color;
     }
     else
     {
         v3 unit_dir = v3_normalize(ray.direction);
         float t = 0.5f * (unit_dir.y + 1.0);
         v3 sky_color_blend = v3_lerp(v3{ 1.0f, 1.0f, 1.0f }, v3{ 0.5f, 0.7f, 1.0f }, t);
-        return sky_color_blend;
+        result_color = sky_color_blend;
     }
+
+    return result_color;
 }
 
 int main()
@@ -56,6 +93,10 @@ int main()
     v3 horizontal{ 4.0f, 0.0f, 0.0f };
     v3 vertical{ 0.0f, 2.0f, 0.0f };
     v3 origin{ 0.0f, 0.0f, 0.0f };
+
+    World world{};
+    world.spheres.push_back(Sphere{ { 0.0f, 0.0f, -1.0f }, 0.5f });
+    world.spheres.push_back(Sphere{ { 0.0f, -100.5f, -1.0f }, 100.0f });
 
     std::ofstream file("out/out.ppm");
 
@@ -77,7 +118,7 @@ int main()
                 v3 target = lower_left_corner + u * horizontal + v * vertical;
                 Ray ray{ origin, target };
 
-                color += ray_color(ray);
+                color += ray_color(ray, world);
             }
 
             color /= float(samples_per_pixel);

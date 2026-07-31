@@ -85,11 +85,3 @@ static inline v3 v3_lerp(const v3 &a, const v3 &b, float t)
     v3 result = (1.0f - t) * a + t * b;
     return result;
 }
-
-struct Ray
-{
-    v3 origin;
-    v3 direction;
-
-    inline v3 at_param(float t) const { return origin + t * direction; }
-};
