@@ -30,6 +30,7 @@ struct Sphere
     float radius;
     Material material;
     v3 albedo;
+    float fuzz;
 };
 
 struct World
@@ -87,7 +88,6 @@ RayHitResult ray_hit_sphere(const Ray &ray, const World &world)
         }
     }
 
-
     RayHitResult result;
     
     if (hit_sphere)
@@ -120,7 +120,7 @@ bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scatte
         case Sphere::Material::Metal:
         {
             v3 reflected = reflect(v3_normalize(ray.direction), hit_result.normal);
-            out_scattered_ray = Ray{ hit_result.point, reflected };
+            out_scattered_ray = Ray{ hit_result.point, reflected + hit_result.sphere->fuzz * random_in_unit_sphere() };
             out_attenuation = hit_result.sphere->albedo;
             bool scattered_outside_sphere = v3_dot(out_scattered_ray.direction, hit_result.normal) > 0.0f;
             return scattered_outside_sphere;
@@ -177,10 +177,10 @@ int main()
     v3 origin{ 0.0f, 0.0f, 0.0f };
 
     World world{};
-    world.spheres.push_back(Sphere{ { 0.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Lambertian, v3{ 0.8f, 0.3f, 0.3f } });
-    world.spheres.push_back(Sphere{ { 0.0f, -100.5f, -1.0f }, 100.0f, Sphere::Material::Lambertian, v3{ 0.8f, 0.8f, 0.0f } });
-    world.spheres.push_back(Sphere{ { 1.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Metal, v3{ 0.8f, 0.6f, 0.2f } });
-    world.spheres.push_back(Sphere{ { -1.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Metal, v3{ 0.8f, 0.8f, 0.8f } });
+    world.spheres.push_back(Sphere{ { 0.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Lambertian, v3{ 0.8f, 0.3f, 0.3f }, 0.0f });
+    world.spheres.push_back(Sphere{ { 0.0f, -100.5f, -1.0f }, 100.0f, Sphere::Material::Lambertian, v3{ 0.8f, 0.8f, 0.0f }, 0.0f });
+    world.spheres.push_back(Sphere{ { 1.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Metal, v3{ 0.8f, 0.6f, 0.2f }, 1.0f });
+    world.spheres.push_back(Sphere{ { -1.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Metal, v3{ 0.8f, 0.8f, 0.8f }, 0.3f });
 
     std::string out_name("out/out.ppm");
 
