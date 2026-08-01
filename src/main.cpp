@@ -7,6 +7,8 @@
 
 #include "util.h"
 
+constexpr int MAX_BOUNCE_DEPTH = 50;
+
 struct Ray
 {
     v3 origin;
@@ -17,8 +19,17 @@ struct Ray
 
 struct Sphere
 {
+    enum class Material
+    {
+        Lambertian,
+        Metal,
+        Dielectric
+    };
+
     v3 center;
     float radius;
+    Material material;
+    v3 albedo;
 };
 
 struct World
@@ -43,6 +54,12 @@ v3 random_in_unit_sphere()
     }
     while (v3_dot(p, p) >= 1.0f);
     return p;
+}
+
+v3 reflect(const v3 &vec, const v3 &normal)
+{
+    v3 result = vec - 2.0f * v3_dot(vec, normal) * normal;
+    return result;
 }
 
 RayHitResult ray_hit_sphere(const Ray &ray, const World &world)
@@ -88,19 +105,52 @@ RayHitResult ray_hit_sphere(const Ray &ray, const World &world)
     return result;
 }
 
-v3 ray_color(const Ray &ray, const World &world)
+bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scattered_ray, v3 &out_attenuation)
+{
+    switch (hit_result.sphere->material)
+    {
+        case Sphere::Material::Lambertian:
+        {
+            v3 target = hit_result.point + hit_result.normal + random_in_unit_sphere();
+            out_scattered_ray = Ray{ hit_result.point, target - hit_result.point };
+            out_attenuation = hit_result.sphere->albedo;
+            return true;
+        } break;
+
+        case Sphere::Material::Metal:
+        {
+            v3 reflected = reflect(v3_normalize(ray.direction), hit_result.normal);
+            out_scattered_ray = Ray{ hit_result.point, reflected };
+            out_attenuation = hit_result.sphere->albedo;
+            bool scattered_outside_sphere = v3_dot(out_scattered_ray.direction, hit_result.normal) > 0.0f;
+            return scattered_outside_sphere;
+        } break;
+
+        case Sphere::Material::Dielectric:
+        {
+            return false;
+        } break;
+    }
+}
+
+v3 ray_color(const Ray &ray, const World &world, int depth = 0)
 {
     v3 result_color;
 
     RayHitResult ray_hit_result = ray_hit_sphere(ray, world);
     if (ray_hit_result.hit)
     {
-        v3 target = ray_hit_result.point + ray_hit_result.normal + random_in_unit_sphere();
-        // v3 sphere_normal = ray_hit_result.normal;
-        // v3 surface_normal_color = 0.5f * (sphere_normal + v3{ 1.0f, 1.0f, 1.0f });
-        Ray bounce_ray{ ray_hit_result.point, target - ray_hit_result.point };
-        v3 color_after_bounce = 0.5f * ray_color(bounce_ray, world);
-        result_color = color_after_bounce;
+        Ray scattered_ray;
+        v3 attenuation;
+        if (depth < MAX_BOUNCE_DEPTH && ray_scatter(ray, ray_hit_result, scattered_ray, attenuation))
+        {
+            v3 color_after_bounce = attenuation * ray_color(scattered_ray, world, depth + 1);
+            result_color = color_after_bounce;
+        }
+        else
+        {
+            result_color = v3{ 0.0f, 0.0f, 0.0f };
+        }
     }
     else
     {
@@ -127,8 +177,10 @@ int main()
     v3 origin{ 0.0f, 0.0f, 0.0f };
 
     World world{};
-    world.spheres.push_back(Sphere{ { 0.0f, 0.0f, -1.0f }, 0.5f });
-    world.spheres.push_back(Sphere{ { 0.0f, -100.5f, -1.0f }, 100.0f });
+    world.spheres.push_back(Sphere{ { 0.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Lambertian, v3{ 0.8f, 0.3f, 0.3f } });
+    world.spheres.push_back(Sphere{ { 0.0f, -100.5f, -1.0f }, 100.0f, Sphere::Material::Lambertian, v3{ 0.8f, 0.8f, 0.0f } });
+    world.spheres.push_back(Sphere{ { 1.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Metal, v3{ 0.8f, 0.6f, 0.2f } });
+    world.spheres.push_back(Sphere{ { -1.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Metal, v3{ 0.8f, 0.8f, 0.8f } });
 
     std::string out_name("out/out.ppm");
 
