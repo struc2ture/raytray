@@ -80,6 +80,39 @@ struct RayHitResult
     const Sphere *sphere;
 };
 
+struct Camera
+{
+    v3 origin;
+    v3 lower_left_corner;
+    v3 horizontal;
+    v3 vertical;
+
+    inline void init(v3 eye, v3 look_at, v3 view_up, float v_fov, float aspect_wh)
+    {
+        float theta = v_fov * M_PI / 180.0f;
+        float half_height = tan(theta * 0.5f);
+        float half_width = aspect_wh * half_height;
+
+        // (u, v, w) basis
+        v3 w = v3_normalize(eye - look_at);
+        v3 u = v3_normalize(v3_cross(view_up, w));
+        v3 v = v3_normalize(v3_cross(w, u));
+
+        origin = eye;
+        lower_left_corner = origin - u * half_width - v * half_height - w;
+        horizontal = 2.0f * half_width * u;
+        vertical = 2.0f * half_height * v;
+    }
+
+    inline Ray get_ray(float s, float t)
+    {
+        Ray result;
+        result.origin = origin;
+        result.direction = lower_left_corner + s * horizontal + t * vertical - origin;
+        return result;
+    }
+};
+
 v3 random_in_unit_sphere()
 {
     v3 p;
@@ -308,10 +341,8 @@ int main()
     int height = 100;
     int samples_per_pixel = 100;
 
-    v3 lower_left_corner{ -2.0f, -1.0f, -1.0f };
-    v3 horizontal{ 4.0f, 0.0f, 0.0f };
-    v3 vertical{ 0.0f, 2.0f, 0.0f };
-    v3 origin{ 0.0f, 0.0f, 0.0f };
+    Camera camera;
+    camera.init(v3{-2.0f, 2.0f, 1.0f}, v3{0.0f, 0.0f, -1.0f}, v3{0.0f, 1.0f, 0.0f}, 30.0f, float(width) / float(height));
 
     World world{};
     world.spheres.push_back(make_sphere_lambertian(v3{ 0.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.1f, 0.2f, 0.5f }));
@@ -319,7 +350,6 @@ int main()
     world.spheres.push_back(make_sphere_metal(v3{ 1.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.8f, 0.6f, 0.2f }));
     world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, 0.5f, 1.50f));
     world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, -0.45f, 1.50f));
-    // world.spheres.push_back(make_sphere_lambertian(v3{ -1.0f, 0.0f, -2.0f }, 0.5f, v3{ 0.8f, 0.3f, 0.3f }));
 
     std::string out_name("out/out.ppm");
 
@@ -340,8 +370,7 @@ int main()
                 float u = float(x + drand48()) / float(width);
                 float v = float(y + drand48()) / float(height);
 
-                v3 target = lower_left_corner + u * horizontal + v * vertical;
-                Ray ray{ origin, target };
+                Ray ray = camera.get_ray(u, v);
 
                 color += ray_color(ray, world);
             }
