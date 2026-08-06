@@ -1,3 +1,5 @@
+// TODO: I think there's a possibility of an infinite loop when refracting into a volume. The transmitted ray might still be considered originating from outside the volume, refracting into the volume again.
+
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -31,7 +33,39 @@ struct Sphere
     Material material;
     v3 albedo;
     float fuzz;
+    float refractive_index;
 };
+
+Sphere make_sphere_lambertian(v3 center, float radius, v3 albedo)
+{
+    Sphere sphere{};
+    sphere.center = center;
+    sphere.radius = radius;
+    sphere.material = Sphere::Material::Lambertian;
+    sphere.albedo = albedo;
+    return sphere;
+}
+
+Sphere make_sphere_metal(v3 center, float radius, v3 albedo, float fuzz = 0.0f)
+{
+    Sphere sphere{};
+    sphere.center = center;
+    sphere.radius = radius;
+    sphere.material = Sphere::Material::Metal;
+    sphere.albedo = albedo;
+    sphere.fuzz = fuzz;
+    return sphere;
+}
+
+Sphere make_sphere_dielectric(v3 center, float radius, float refractive_index)
+{
+    Sphere sphere{};
+    sphere.center = center;
+    sphere.radius = radius;
+    sphere.material = Sphere::Material::Dielectric;
+    sphere.refractive_index = refractive_index;
+    return sphere;
+}
 
 struct World
 {
@@ -63,28 +97,78 @@ v3 reflect(const v3 &vec, const v3 &normal)
     return result;
 }
 
-RayHitResult ray_hit_sphere(const Ray &ray, const World &world)
+bool refract(const v3 &vec, const v3 &normal, float ni_over_nt, v3 &out_refracted)
 {
-    float smallest_t = MAXFLOAT;
+    v3 dir = v3_normalize(vec);
+    float dt = v3_dot(dir, normal);
+    float discriminant = 1.0f - ni_over_nt * ni_over_nt * (1.0f - dt * dt);
+    if (discriminant > 0.0f)
+    {
+        out_refracted = ni_over_nt *(vec - normal * dt) - normal * sqrt(discriminant);
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+bool ray_hit_sphere(const Ray &ray, const Sphere &sphere, float t_min, float t_max, float &out_root)
+{
+    bool solved;
+
+    v3 oc = ray.origin - sphere.center;
+    float a = v3_dot(ray.direction, ray.direction);
+    float b = v3_dot(oc, ray.direction);
+    float c = v3_dot(oc, oc) - sphere.radius * sphere.radius;
+    float discriminant = b * b - a * c;
+    if (discriminant > 0.0f)
+    {
+        bool found_root_in_range = false;
+
+        float root = (-b - sqrt(discriminant)) / a;
+        if (root > t_min && root < t_max)
+        {
+            found_root_in_range = true;
+        }
+
+        if (!found_root_in_range)
+        {
+            root = (-b + sqrt(discriminant)) / a;
+            if (root > t_min && root < t_max)
+            {
+                found_root_in_range = true;
+            }
+        }
+
+        if (found_root_in_range)
+        {
+            out_root = root;
+        }
+        solved = found_root_in_range;
+    }
+    else
+    {
+        solved = false;
+    }
+
+    return solved;
+}
+
+RayHitResult ray_closest_hit(const Ray &ray, const World &world)
+{
     const Sphere *hit_sphere = nullptr;
+    float smallest_t = MAXFLOAT;
 
     for (size_t i = 0; i < world.spheres.size(); i++)
     {
         const Sphere &sphere = world.spheres[i];
-        v3 oc = ray.origin - sphere.center;
-        float a = v3_dot(ray.direction, ray.direction);
-        float b = 2.0f * v3_dot(oc, ray.direction);
-        float c = v3_dot(oc, oc) - sphere.radius * sphere.radius;
-        float discriminant = b * b - 4 * a * c;
 
-        if (discriminant >= 0.0f)
+        float t;
+        if (ray_hit_sphere(ray, sphere, 0.0f, smallest_t, t))
         {
-            float root = (-b - std::sqrt(discriminant)) / (2.0f * a);
-            if (root > 0.0f && root < smallest_t)
-            {
-                smallest_t = root;
-                hit_sphere = &world.spheres[i];
-            }
+            smallest_t = t;
+            hit_sphere = &world.spheres[i];
         }
     }
 
@@ -119,8 +203,8 @@ bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scatte
 
         case Sphere::Material::Metal:
         {
-            v3 reflected = reflect(v3_normalize(ray.direction), hit_result.normal);
-            out_scattered_ray = Ray{ hit_result.point, reflected + hit_result.sphere->fuzz * random_in_unit_sphere() };
+            v3 reflected_dir = reflect(v3_normalize(ray.direction), hit_result.normal);
+            out_scattered_ray = Ray{ hit_result.point, reflected_dir + hit_result.sphere->fuzz * random_in_unit_sphere() };
             out_attenuation = hit_result.sphere->albedo;
             bool scattered_outside_sphere = v3_dot(out_scattered_ray.direction, hit_result.normal) > 0.0f;
             return scattered_outside_sphere;
@@ -128,7 +212,38 @@ bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scatte
 
         case Sphere::Material::Dielectric:
         {
-            return false;
+            v3 ray_dir = v3_normalize(ray.direction);
+            out_attenuation = v3{ 1.0f, 1.0f, 1.0f };
+
+            // this code is limited to the case of one of the sides of the refraction surface being air (n = 1)
+            v3 outward_normal;
+            float ni_over_nt; // refractive index: incident over transmitted
+            if (v3_dot(ray_dir, hit_result.normal) > 0.0f)
+            {
+                // the ray originated inside a volume, the "outward" normal will point against the ray -> back inside the volume
+                outward_normal = -hit_result.normal;
+                ni_over_nt = hit_result.sphere->refractive_index; // inside the volume is incident, the air is transmitted -> ni_over_nt = ni / 1.0f
+            }
+            else
+            {
+                outward_normal = hit_result.normal;
+                ni_over_nt = 1.0f / hit_result.sphere->refractive_index;
+            }
+
+            v3 refracted_dir;
+            if (refract(ray_dir, outward_normal, ni_over_nt, refracted_dir))
+            {
+                out_scattered_ray = Ray{ hit_result.point, refracted_dir };
+            }
+            else
+            {
+                // TODO: shouldn't this also use outward_normal? Or do we assume no reflections when inside a dielectric?
+                v3 reflected_dir = reflect(ray_dir, hit_result.normal);
+                out_scattered_ray = Ray{ hit_result.point, reflected_dir };
+            }
+            
+            // never absorbed
+            return true;
         } break;
     }
 }
@@ -137,7 +252,7 @@ v3 ray_color(const Ray &ray, const World &world, int depth = 0)
 {
     v3 result_color;
 
-    RayHitResult ray_hit_result = ray_hit_sphere(ray, world);
+    RayHitResult ray_hit_result = ray_closest_hit(ray, world);
     if (ray_hit_result.hit)
     {
         Ray scattered_ray;
@@ -177,10 +292,11 @@ int main()
     v3 origin{ 0.0f, 0.0f, 0.0f };
 
     World world{};
-    world.spheres.push_back(Sphere{ { 0.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Lambertian, v3{ 0.8f, 0.3f, 0.3f }, 0.0f });
-    world.spheres.push_back(Sphere{ { 0.0f, -100.5f, -1.0f }, 100.0f, Sphere::Material::Lambertian, v3{ 0.8f, 0.8f, 0.0f }, 0.0f });
-    world.spheres.push_back(Sphere{ { 1.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Metal, v3{ 0.8f, 0.6f, 0.2f }, 1.0f });
-    world.spheres.push_back(Sphere{ { -1.0f, 0.0f, -1.0f }, 0.5f, Sphere::Material::Metal, v3{ 0.8f, 0.8f, 0.8f }, 0.3f });
+    world.spheres.push_back(make_sphere_lambertian(v3{ 0.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.1f, 0.2f, 0.5f }));
+    world.spheres.push_back(make_sphere_lambertian(v3{ 0.0f, -100.5f, -1.0f }, 100.0f, v3{ 0.8f, 0.8f, 0.0f }));
+    world.spheres.push_back(make_sphere_metal(v3{ 1.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.8f, 0.6f, 0.2f }));
+    world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, 0.5f, 1.50f));
+    // world.spheres.push_back(make_sphere_lambertian(v3{ -1.0f, 0.0f, -2.0f }, 0.5f, v3{ 0.8f, 0.3f, 0.3f }));
 
     std::string out_name("out/out.ppm");
 

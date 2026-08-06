@@ -62,6 +62,12 @@ static inline v3 &operator/=(v3 &vec, const float &scalar)
     return vec;
 }
 
+static inline v3 operator-(const v3 &vec)
+{
+    v3 result = v3{ -vec.x, -vec.y, -vec.z };
+    return result;
+}
+
 static inline v3 v3_normalize(const v3 &vec)
 {
     v3 result = vec / vec.length();
