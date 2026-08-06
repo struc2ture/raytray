@@ -176,7 +176,7 @@ RayHitResult ray_closest_hit(const Ray &ray, const World &world)
         const Sphere &sphere = world.spheres[i];
 
         float t;
-        if (ray_hit_sphere(ray, sphere, 0.0f, smallest_t, t))
+        if (ray_hit_sphere(ray, sphere, 0.01f, smallest_t, t))
         {
             smallest_t = t;
             hit_sphere = &world.spheres[i];
