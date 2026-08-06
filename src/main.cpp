@@ -113,6 +113,17 @@ bool refract(const v3 &vec, const v3 &normal, float ni_over_nt, v3 &out_refracte
     }
 }
 
+float shlick(float cosine, float refractive_index)
+{
+    float result;
+
+    float r0 = (1 - refractive_index) / (1 + refractive_index);
+    r0 *= r0;
+    result = r0 + (1 - r0) * pow(1 - cosine, 5);
+
+    return result;
+}
+
 bool ray_hit_sphere(const Ray &ray, const Sphere &sphere, float t_min, float t_max, float &out_root)
 {
     bool solved;
@@ -218,24 +229,35 @@ bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scatte
             // this code is limited to the case of one of the sides of the refraction surface being air (n = 1)
             v3 outward_normal;
             float ni_over_nt; // refractive index: incident over transmitted
-            if (v3_dot(ray_dir, hit_result.normal) > 0.0f)
+            float cosine;
+            float dot_product = v3_dot(ray_dir, hit_result.normal);
+            if (dot_product > 0.0f)
             {
                 // the ray originated inside a volume, the "outward" normal will point against the ray -> back inside the volume
                 outward_normal = -hit_result.normal;
                 ni_over_nt = hit_result.sphere->refractive_index; // inside the volume is incident, the air is transmitted -> ni_over_nt = ni / 1.0f
+                cosine = hit_result.sphere->refractive_index * dot_product / ray.direction.length();
             }
             else
             {
                 outward_normal = hit_result.normal;
                 ni_over_nt = 1.0f / hit_result.sphere->refractive_index;
+                cosine = -dot_product / ray.direction.length();
             }
 
+            bool refracted = false;
             v3 refracted_dir;
             if (refract(ray_dir, outward_normal, ni_over_nt, refracted_dir))
             {
-                out_scattered_ray = Ray{ hit_result.point, refracted_dir };
+                float reflect_probability = shlick(cosine, hit_result.sphere->refractive_index);
+                if (drand48() >= reflect_probability)
+                {
+                    out_scattered_ray = Ray{ hit_result.point, refracted_dir };
+                    refracted = true;
+                }
             }
-            else
+
+            if (!refracted)
             {
                 // TODO: shouldn't this also use outward_normal? Or do we assume no reflections when inside a dielectric?
                 v3 reflected_dir = reflect(ray_dir, hit_result.normal);
@@ -296,6 +318,7 @@ int main()
     world.spheres.push_back(make_sphere_lambertian(v3{ 0.0f, -100.5f, -1.0f }, 100.0f, v3{ 0.8f, 0.8f, 0.0f }));
     world.spheres.push_back(make_sphere_metal(v3{ 1.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.8f, 0.6f, 0.2f }));
     world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, 0.5f, 1.50f));
+    world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, -0.45f, 1.50f));
     // world.spheres.push_back(make_sphere_lambertian(v3{ -1.0f, 0.0f, -2.0f }, 0.5f, v3{ 0.8f, 0.3f, 0.3f }));
 
     std::string out_name("out/out.ppm");
