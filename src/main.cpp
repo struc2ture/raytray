@@ -361,27 +361,78 @@ v3 ray_color(const Ray &ray, const World &world, int depth = 0)
     return result_color;
 }
 
-int main()
+World small_test_scene()
 {
-    std::println("Starting ray tracing...");
-
-    int width = 200;
-    int height = 100;
-    int samples_per_pixel = 100;
-
-    Camera camera;
-    v3 camera_pos = v3{-2.0f, 2.0f, 1.0f};
-    v3 camera_look_at = v3{0.0f, 0.0f, -1.0f};
-    float focus_dist = (camera_look_at - camera_pos).length();
-    camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 30.0f, float(width) / float(height), 0.2f, focus_dist);
-    // camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 30.0f, float(width) / float(height), 0.0f, 1.0f);
-
     World world{};
+
     world.spheres.push_back(make_sphere_lambertian(v3{ 0.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.1f, 0.2f, 0.5f }));
     world.spheres.push_back(make_sphere_lambertian(v3{ 0.0f, -100.5f, -1.0f }, 100.0f, v3{ 0.8f, 0.8f, 0.0f }));
     world.spheres.push_back(make_sphere_metal(v3{ 1.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.8f, 0.6f, 0.2f }));
     world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, 0.5f, 1.50f));
     world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, -0.45f, 1.50f));
+
+    return world;
+}
+
+World random_scene()
+{
+    World world{};
+
+    world.spheres.push_back(make_sphere_lambertian(v3{0.0f, -1000.0f, 0.0f}, 1000.0f, v3{0.5f, 0.5f, 0.5f}));
+
+    for (int a = -11; a < 11; a++)
+    {
+        for (int b = -11; b < 11; b++)
+        {
+            float choose_mat = drand48();
+            v3 center{float(a) + 0.9f * float(drand48()), 0.2f, float(b) + 0.9f * float(drand48())};
+            if ((center - v3{4.0f, 0.2f, 0.0f}).length() > 0.9f)
+            {
+                if (choose_mat < 0.8f) // diffuse
+                {
+                    v3 random_color{float(drand48() * drand48()), float(drand48() * drand48()), float(drand48() * drand48())};
+                    world.spheres.push_back(make_sphere_lambertian(center, 0.2f, random_color));
+                }
+                else if (choose_mat < 0.95f) // metal
+                {
+                    v3 random_color{0.5f * (1.0f + float(drand48())), 0.5f * (1.0f + float(drand48())), 0.5f * (1.0f + float(drand48()))};
+                    float random_fuzziness = 0.5f * float(drand48());
+                    world.spheres.push_back(make_sphere_metal(center, 0.2f, random_color, random_fuzziness));
+                }
+                else // glass
+                {
+                    world.spheres.push_back(make_sphere_dielectric(center, 0.2f, 1.5f));
+                }
+            }
+        }
+    }
+
+
+    world.spheres.push_back(make_sphere_dielectric(v3{0.0f, 1.0f, 0.0f}, 1.0f, 1.5f));
+    world.spheres.push_back(make_sphere_lambertian(v3{-4.0f, 1.0f, 0.0f}, 1.0f, v3{0.4f, 0.2f, 0.1f}));
+    world.spheres.push_back(make_sphere_metal(v3{4.0f, 1.0f, 0.0f}, 1.0f, v3{0.7f, 0.6f, 0.5f}));
+
+    return world;
+}
+
+int main()
+{
+    std::println("Starting ray tracing...");
+
+    int width = 427;
+    int height = 320;
+    int samples_per_pixel = 200;
+
+    Camera camera;
+    // v3 camera_pos = v3{-2.0f, 2.0f, 1.0f};
+    v3 camera_pos = v3{12.0f, 1.8f, 3.0f};
+    v3 camera_look_at = v3{0.0f, 1.0f, 0.0f};
+    // float focus_dist = (camera_look_at - camera_pos).length();
+    float focus_dist = (v3{4.0f, 1.0f, 0.0f} - camera_pos).length();
+    camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 20.0f, float(width) / float(height), 0.08f, focus_dist);
+    // camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 30.0f, float(width) / float(height), 0.0f, 1.0f);
+
+    World world = random_scene();
 
     std::string out_name("out/out.ppm");
 
