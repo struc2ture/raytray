@@ -19,21 +19,27 @@ struct Ray
     inline v3 at_param(float t) const { return origin + t * direction; }
 };
 
-struct Sphere
+struct Material
 {
-    enum class Material
+    enum class Type
     {
         Lambertian,
         Metal,
         Dielectric
     };
 
-    v3 center;
-    float radius;
-    Material material;
+    Type type;
     v3 albedo;
     float fuzz;
     float refractive_index;
+};
+
+struct Sphere
+{
+    v3 center;
+    float radius;
+
+    Material material;
 };
 
 Sphere make_sphere_lambertian(v3 center, float radius, v3 albedo)
@@ -41,8 +47,8 @@ Sphere make_sphere_lambertian(v3 center, float radius, v3 albedo)
     Sphere sphere{};
     sphere.center = center;
     sphere.radius = radius;
-    sphere.material = Sphere::Material::Lambertian;
-    sphere.albedo = albedo;
+    sphere.material.type = Material::Type::Lambertian;
+    sphere.material.albedo = albedo;
     return sphere;
 }
 
@@ -51,9 +57,9 @@ Sphere make_sphere_metal(v3 center, float radius, v3 albedo, float fuzz = 0.0f)
     Sphere sphere{};
     sphere.center = center;
     sphere.radius = radius;
-    sphere.material = Sphere::Material::Metal;
-    sphere.albedo = albedo;
-    sphere.fuzz = fuzz;
+    sphere.material.type = Material::Type::Metal;
+    sphere.material.albedo = albedo;
+    sphere.material.fuzz = fuzz;
     return sphere;
 }
 
@@ -62,8 +68,8 @@ Sphere make_sphere_dielectric(v3 center, float radius, float refractive_index)
     Sphere sphere{};
     sphere.center = center;
     sphere.radius = radius;
-    sphere.material = Sphere::Material::Dielectric;
-    sphere.refractive_index = refractive_index;
+    sphere.material.type = Material::Type::Dielectric;
+    sphere.material.refractive_index = refractive_index;
     return sphere;
 }
 
@@ -263,26 +269,26 @@ RayHitResult ray_closest_hit(const Ray &ray, const World &world)
 
 bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scattered_ray, v3 &out_attenuation)
 {
-    switch (hit_result.sphere->material)
+    switch (hit_result.sphere->material.type)
     {
-        case Sphere::Material::Lambertian:
+        case Material::Type::Lambertian:
         {
             v3 target = hit_result.point + hit_result.normal + random_in_unit_sphere();
             out_scattered_ray = Ray{ hit_result.point, target - hit_result.point };
-            out_attenuation = hit_result.sphere->albedo;
+            out_attenuation = hit_result.sphere->material.albedo;
             return true;
         } break;
 
-        case Sphere::Material::Metal:
+        case Material::Type::Metal:
         {
             v3 reflected_dir = reflect(v3_normalize(ray.direction), hit_result.normal);
-            out_scattered_ray = Ray{ hit_result.point, reflected_dir + hit_result.sphere->fuzz * random_in_unit_sphere() };
-            out_attenuation = hit_result.sphere->albedo;
+            out_scattered_ray = Ray{ hit_result.point, reflected_dir + hit_result.sphere->material.fuzz * random_in_unit_sphere() };
+            out_attenuation = hit_result.sphere->material.albedo;
             bool scattered_outside_sphere = v3_dot(out_scattered_ray.direction, hit_result.normal) > 0.0f;
             return scattered_outside_sphere;
         } break;
 
-        case Sphere::Material::Dielectric:
+        case Material::Type::Dielectric:
         {
             v3 ray_dir = v3_normalize(ray.direction);
             out_attenuation = v3{ 1.0f, 1.0f, 1.0f };
@@ -296,13 +302,13 @@ bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scatte
             {
                 // the ray originated inside a volume, the "outward" normal will point against the ray -> back inside the volume
                 outward_normal = -hit_result.normal;
-                ni_over_nt = hit_result.sphere->refractive_index; // inside the volume is incident, the air is transmitted -> ni_over_nt = ni / 1.0f
-                cosine = hit_result.sphere->refractive_index * dot_product / ray.direction.length();
+                ni_over_nt = hit_result.sphere->material.refractive_index; // inside the volume is incident, the air is transmitted -> ni_over_nt = ni / 1.0f
+                cosine = hit_result.sphere->material.refractive_index * dot_product / ray.direction.length();
             }
             else
             {
                 outward_normal = hit_result.normal;
-                ni_over_nt = 1.0f / hit_result.sphere->refractive_index;
+                ni_over_nt = 1.0f / hit_result.sphere->material.refractive_index;
                 cosine = -dot_product / ray.direction.length();
             }
 
@@ -310,7 +316,7 @@ bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scatte
             v3 refracted_dir;
             if (refract(ray_dir, outward_normal, ni_over_nt, refracted_dir))
             {
-                float reflect_probability = shlick(cosine, hit_result.sphere->refractive_index);
+                float reflect_probability = shlick(cosine, hit_result.sphere->material.refractive_index);
                 if (drand48() >= reflect_probability)
                 {
                     out_scattered_ray = Ray{ hit_result.point, refracted_dir };
@@ -432,7 +438,7 @@ int main()
     camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 20.0f, float(width) / float(height), 0.08f, focus_dist);
     // camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 30.0f, float(width) / float(height), 0.0f, 1.0f);
 
-    World world = random_scene();
+    World world = small_test_scene();
 
     std::string out_name("out/out.ppm");
 
