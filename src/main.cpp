@@ -425,20 +425,34 @@ int main()
 {
     std::println("Starting ray tracing...");
 
-    int width = 427;
-    int height = 320;
-    int samples_per_pixel = 200;
+#if 1
+    int width = 200;
+    int height = 100;
+    int samples_per_pixel = 100;
 
     Camera camera;
-    // v3 camera_pos = v3{-2.0f, 2.0f, 1.0f};
-    v3 camera_pos = v3{12.0f, 1.8f, 3.0f};
-    v3 camera_look_at = v3{0.0f, 1.0f, 0.0f};
-    // float focus_dist = (camera_look_at - camera_pos).length();
-    float focus_dist = (v3{4.0f, 1.0f, 0.0f} - camera_pos).length();
-    camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 20.0f, float(width) / float(height), 0.08f, focus_dist);
-    // camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 30.0f, float(width) / float(height), 0.0f, 1.0f);
+    v3 camera_pos = v3{-2.0f, 2.0f, 1.0f};
+    v3 camera_look_at = v3{0.0f, 0.0f, -1.0f};
+    float focus_dist = (camera_look_at - camera_pos).length();
+    camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 30.0f, float(width) / float(height), 0.2f, focus_dist);
 
     World world = small_test_scene();
+#else
+    int width = 200;
+    int height = 100;
+    int samples_per_pixel = 100;
+    // int width = 427;
+    // int height = 320;
+    // int samples_per_pixel = 200;
+
+    Camera camera;
+    v3 camera_pos = v3{12.0f, 1.8f, 3.0f};
+    v3 camera_look_at = v3{0.0f, 0.0f, -1.0f};
+    float focus_dist = (v3{4.0f, 1.0f, 0.0f} - camera_pos).length();
+    camera.init(camera_pos, camera_look_at, v3{0.0f, 1.0f, 0.0f}, 20.0f, float(width) / float(height), 0.08f, focus_dist);
+
+    World world = random_scene();
+#endif
 
     std::string out_name("out/out.ppm");
 
