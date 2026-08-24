@@ -34,48 +34,63 @@ struct Material
     float refractive_index;
 };
 
-struct Sphere
+struct Entity
 {
+    enum class Type
+    {
+        Sphere,
+        Quad,
+        BVH,
+        Transform,
+        List
+    };
+
+    Type type;
+
     v3 center;
     float radius;
 
     Material material;
 };
 
-Sphere make_sphere_lambertian(v3 center, float radius, v3 albedo)
+Material make_material_lambertian(v3 albedo)
 {
-    Sphere sphere{};
-    sphere.center = center;
-    sphere.radius = radius;
-    sphere.material.type = Material::Type::Lambertian;
-    sphere.material.albedo = albedo;
-    return sphere;
+    Material m{};
+    m.type = Material::Type::Lambertian;
+    m.albedo = albedo;
+    return m;
 }
 
-Sphere make_sphere_metal(v3 center, float radius, v3 albedo, float fuzz = 0.0f)
+Material make_material_metal(v3 albedo, float fuzz = 0.0f)
 {
-    Sphere sphere{};
-    sphere.center = center;
-    sphere.radius = radius;
-    sphere.material.type = Material::Type::Metal;
-    sphere.material.albedo = albedo;
-    sphere.material.fuzz = fuzz;
-    return sphere;
+    Material m{};
+    m.type = Material::Type::Metal;
+    m.albedo = albedo;
+    m.fuzz = fuzz;
+    return m;
 }
 
-Sphere make_sphere_dielectric(v3 center, float radius, float refractive_index)
+Material make_material_dielectric(float refractive_index)
 {
-    Sphere sphere{};
-    sphere.center = center;
-    sphere.radius = radius;
-    sphere.material.type = Material::Type::Dielectric;
-    sphere.material.refractive_index = refractive_index;
-    return sphere;
+    Material m{};
+    m.type = Material::Type::Dielectric;
+    m.refractive_index = refractive_index;
+    return m;
+}
+
+Entity make_entity_sphere(v3 center, float radius, Material material)
+{
+    Entity e{};
+    e.type = Entity::Type::Sphere;
+    e.center = center;
+    e.radius = radius;
+    e.material = material;
+    return e;
 }
 
 struct World
 {
-    std::vector<Sphere> spheres;
+    std::vector<Entity> entities;
 };
 
 struct RayHitResult
@@ -83,7 +98,7 @@ struct RayHitResult
     bool hit;
     v3 point;
     v3 normal;
-    const Sphere *sphere;
+    const Entity *entity;
 };
 
 v3 random_in_unit_sphere()
@@ -191,7 +206,7 @@ float shlick(float cosine, float refractive_index)
     return result;
 }
 
-bool ray_hit_sphere(const Ray &ray, const Sphere &sphere, float t_min, float t_max, float &out_root)
+bool ray_hit_sphere(const Ray &ray, const Entity &sphere, float t_min, float t_max, float &out_root)
 {
     bool solved;
 
@@ -233,31 +248,49 @@ bool ray_hit_sphere(const Ray &ray, const Sphere &sphere, float t_min, float t_m
     return solved;
 }
 
+bool ray_hit_entity(const Ray &ray, const Entity &entity, float t_min, float t_max, float &out_root)
+{
+    switch (entity.type)
+    {
+        case Entity::Type::Sphere:
+        {
+            return ray_hit_sphere(ray, entity, t_min, t_max, out_root);
+        } break;
+
+        default:
+        {
+            std::println("ray_hit_entity: Unhandled entity type");
+            exit(1);
+        } break;
+    }
+}
+
 RayHitResult ray_closest_hit(const Ray &ray, const World &world)
 {
-    const Sphere *hit_sphere = nullptr;
+    const Entity *hit_entity = nullptr;
     float smallest_t = MAXFLOAT;
 
-    for (size_t i = 0; i < world.spheres.size(); i++)
+    for (size_t i = 0; i < world.entities.size(); i++)
     {
-        const Sphere &sphere = world.spheres[i];
+        const Entity &entity = world.entities[i];
 
         float t;
-        if (ray_hit_sphere(ray, sphere, 0.01f, smallest_t, t))
+        if (ray_hit_entity(ray, entity, 0.01f, smallest_t, t))
         {
             smallest_t = t;
-            hit_sphere = &world.spheres[i];
+            hit_entity = &world.entities[i];
         }
     }
 
     RayHitResult result;
     
-    if (hit_sphere)
+    if (hit_entity)
     {
         result.hit = true;
-        result.sphere = hit_sphere;
+        result.entity = hit_entity;
         result.point = ray.at_param(smallest_t);
-        result.normal = (result.point - hit_sphere->center) / hit_sphere->radius;
+        // TODO: Ask entity to return its normal
+        result.normal = (result.point - hit_entity->center) / hit_entity->radius;
     }
     else
     {
@@ -269,23 +302,23 @@ RayHitResult ray_closest_hit(const Ray &ray, const World &world)
 
 bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scattered_ray, v3 &out_attenuation)
 {
-    switch (hit_result.sphere->material.type)
+    switch (hit_result.entity->material.type)
     {
         case Material::Type::Lambertian:
         {
             v3 target = hit_result.point + hit_result.normal + random_in_unit_sphere();
             out_scattered_ray = Ray{ hit_result.point, target - hit_result.point };
-            out_attenuation = hit_result.sphere->material.albedo;
+            out_attenuation = hit_result.entity->material.albedo;
             return true;
         } break;
 
         case Material::Type::Metal:
         {
             v3 reflected_dir = reflect(v3_normalize(ray.direction), hit_result.normal);
-            out_scattered_ray = Ray{ hit_result.point, reflected_dir + hit_result.sphere->material.fuzz * random_in_unit_sphere() };
-            out_attenuation = hit_result.sphere->material.albedo;
-            bool scattered_outside_sphere = v3_dot(out_scattered_ray.direction, hit_result.normal) > 0.0f;
-            return scattered_outside_sphere;
+            out_scattered_ray = Ray{ hit_result.point, reflected_dir + hit_result.entity->material.fuzz * random_in_unit_sphere() };
+            out_attenuation = hit_result.entity->material.albedo;
+            bool scattered_outside_entity = v3_dot(out_scattered_ray.direction, hit_result.normal) > 0.0f;
+            return scattered_outside_entity;
         } break;
 
         case Material::Type::Dielectric:
@@ -302,13 +335,13 @@ bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scatte
             {
                 // the ray originated inside a volume, the "outward" normal will point against the ray -> back inside the volume
                 outward_normal = -hit_result.normal;
-                ni_over_nt = hit_result.sphere->material.refractive_index; // inside the volume is incident, the air is transmitted -> ni_over_nt = ni / 1.0f
-                cosine = hit_result.sphere->material.refractive_index * dot_product / ray.direction.length();
+                ni_over_nt = hit_result.entity->material.refractive_index; // inside the volume is incident, the air is transmitted -> ni_over_nt = ni / 1.0f
+                cosine = hit_result.entity->material.refractive_index * dot_product / ray.direction.length();
             }
             else
             {
                 outward_normal = hit_result.normal;
-                ni_over_nt = 1.0f / hit_result.sphere->material.refractive_index;
+                ni_over_nt = 1.0f / hit_result.entity->material.refractive_index;
                 cosine = -dot_product / ray.direction.length();
             }
 
@@ -316,7 +349,7 @@ bool ray_scatter(const Ray &ray, const RayHitResult &hit_result, Ray &out_scatte
             v3 refracted_dir;
             if (refract(ray_dir, outward_normal, ni_over_nt, refracted_dir))
             {
-                float reflect_probability = shlick(cosine, hit_result.sphere->material.refractive_index);
+                float reflect_probability = shlick(cosine, hit_result.entity->material.refractive_index);
                 if (drand48() >= reflect_probability)
                 {
                     out_scattered_ray = Ray{ hit_result.point, refracted_dir };
@@ -371,11 +404,11 @@ World small_test_scene()
 {
     World world{};
 
-    world.spheres.push_back(make_sphere_lambertian(v3{ 0.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.1f, 0.2f, 0.5f }));
-    world.spheres.push_back(make_sphere_lambertian(v3{ 0.0f, -100.5f, -1.0f }, 100.0f, v3{ 0.8f, 0.8f, 0.0f }));
-    world.spheres.push_back(make_sphere_metal(v3{ 1.0f, 0.0f, -1.0f }, 0.5f, v3{ 0.8f, 0.6f, 0.2f }));
-    world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, 0.5f, 1.50f));
-    world.spheres.push_back(make_sphere_dielectric(v3{ -1.0f, 0.0f, -1.0f }, -0.45f, 1.50f));
+    world.entities.push_back(make_entity_sphere(v3{ 0.0f, 0.0f, -1.0f }, 0.5f, make_material_lambertian(v3{ 0.1f, 0.2f, 0.5f })));
+    world.entities.push_back(make_entity_sphere(v3{ 0.0f, -100.5f, -1.0f }, 100.0f, make_material_lambertian(v3{ 0.8f, 0.8f, 0.0f })));
+    world.entities.push_back(make_entity_sphere(v3{ 1.0f, 0.0f, -1.0f }, 0.5f, make_material_metal(v3{ 0.8f, 0.6f, 0.2f })));
+    world.entities.push_back(make_entity_sphere(v3{ -1.0f, 0.0f, -1.0f }, 0.5f, make_material_dielectric(1.50f)));
+    world.entities.push_back(make_entity_sphere(v3{ -1.0f, 0.0f, -1.0f }, -0.45f, make_material_dielectric(1.50f)));
 
     return world;
 }
@@ -384,7 +417,7 @@ World random_scene()
 {
     World world{};
 
-    world.spheres.push_back(make_sphere_lambertian(v3{0.0f, -1000.0f, 0.0f}, 1000.0f, v3{0.5f, 0.5f, 0.5f}));
+    world.entities.push_back(make_entity_sphere(v3{0.0f, -1000.0f, 0.0f}, 1000.0f, make_material_lambertian(v3{0.5f, 0.5f, 0.5f})));
 
     for (int a = -11; a < 11; a++)
     {
@@ -397,26 +430,26 @@ World random_scene()
                 if (choose_mat < 0.8f) // diffuse
                 {
                     v3 random_color{float(drand48() * drand48()), float(drand48() * drand48()), float(drand48() * drand48())};
-                    world.spheres.push_back(make_sphere_lambertian(center, 0.2f, random_color));
+                    world.entities.push_back(make_entity_sphere(center, 0.2f, make_material_lambertian(random_color)));
                 }
                 else if (choose_mat < 0.95f) // metal
                 {
                     v3 random_color{0.5f * (1.0f + float(drand48())), 0.5f * (1.0f + float(drand48())), 0.5f * (1.0f + float(drand48()))};
                     float random_fuzziness = 0.5f * float(drand48());
-                    world.spheres.push_back(make_sphere_metal(center, 0.2f, random_color, random_fuzziness));
+                    world.entities.push_back(make_entity_sphere(center, 0.2f, make_material_metal(random_color, random_fuzziness)));
                 }
                 else // glass
                 {
-                    world.spheres.push_back(make_sphere_dielectric(center, 0.2f, 1.5f));
+                    world.entities.push_back(make_entity_sphere(center, 0.2f, make_material_dielectric(1.5f)));
                 }
             }
         }
     }
 
 
-    world.spheres.push_back(make_sphere_dielectric(v3{0.0f, 1.0f, 0.0f}, 1.0f, 1.5f));
-    world.spheres.push_back(make_sphere_lambertian(v3{-4.0f, 1.0f, 0.0f}, 1.0f, v3{0.4f, 0.2f, 0.1f}));
-    world.spheres.push_back(make_sphere_metal(v3{4.0f, 1.0f, 0.0f}, 1.0f, v3{0.7f, 0.6f, 0.5f}));
+    world.entities.push_back(make_entity_sphere(v3{0.0f, 1.0f, 0.0f}, 1.0f, make_material_dielectric(1.5f)));
+    world.entities.push_back(make_entity_sphere(v3{-4.0f, 1.0f, 0.0f}, 1.0f, make_material_lambertian(v3{0.4f, 0.2f, 0.1f})));
+    world.entities.push_back(make_entity_sphere(v3{4.0f, 1.0f, 0.0f}, 1.0f, make_material_metal(v3{0.7f, 0.6f, 0.5f})));
 
     return world;
 }
